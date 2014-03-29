@@ -1,0 +1,74 @@
+<project name="ByteCodeOptimizer" basedir=".">
+    <property name="src.dir" value="src"/>
+    <property name="lib.dir" value="lib"/>
+    <property name="bin.dir" value="jars"/>
+    <property name="build.dir"   value="build"/>
+    <property name="classes.dir" value="${build.dir}/classes"/>
+    <property name="log.dir"  value="log"/>
+    <property name="main-class" value="comp2010.main.ByteCodeOptimizer"/>
+
+    <path id="classpath">
+        <fileset dir="${lib.dir}" includes="*.jar"/>
+    </path>
+    <path id="application" location="${classes.dir}"/>
+    
+    <path id="libraries.path">    
+        <fileset dir="${lib.dir}">
+            <include name="*.jar"/>
+        </fileset>
+    </path>
+
+    <path id="dep.runtime">
+        <fileset dir="./lib">
+            <include name="**/*.jar" />
+        </fileset>
+    </path>
+    <property name="dep_cp" value="${toString:dep.runtime}" />
+
+    <target name="jar" depends="compile">
+        <mkdir dir="${bin.dir}"/>
+        <mkdir dir="${bin.dir}/${lib.dir}"/>
+
+        <jar destfile="${bin.dir}/opt.jar" basedir="${classes.dir}">
+            <manifest>
+                <attribute name="Main-Class" value="${main-class}"/>
+                <attribute name="Class-Path" value="${bin.dir}/${lib.dir}/bcel-5.2.jar"/>
+            </manifest>
+            <fileset dir="${bin.dir}" includes="**/*.class"/>
+            <zipgroupfileset dir="${lib.dir}" includes="**/*.jar" />
+        </jar>
+    </target>
+
+    <target name="compile">
+        <mkdir dir="${classes.dir}"/>
+        <javac srcdir="src" destdir="${classes.dir}" classpathref="classpath" includeantruntime="false"/>
+    </target>
+
+    <target name="all" depends="compile,jar"/>
+
+    <target name="clean">
+        <delete dir="build"/>
+        <delete dir="jar"/>
+    </target>
+
+    <!-- <target name="junit" depends="compile">
+        <mkdir dir="${log.dir}"/>
+        <junit printsummary="yes">
+            <classpath>
+                <path refid="classpath"/>
+                <path refid="application"/>
+            </classpath>
+            <formatter type="xml"/>
+            <batchtest fork="yes" todir="${log.dir}">
+                <fileset dir="${src.dir}/tests" includes="*Test.java"/>
+            </batchtest>
+        </junit>
+    </target>
+
+    <target name="junitreport">
+        <junitreport todir="${log.dir}">
+            <fileset dir="${log.dir}" includes="TEST-*.xml"/>
+            <report todir="${log.dir}"/>
+        </junitreport>
+    </target> -->
+</project>
