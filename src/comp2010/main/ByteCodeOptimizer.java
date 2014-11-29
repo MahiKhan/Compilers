@@ -3,22 +3,12 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Iterator;
 
-import org.apache.bcel.Repository;
 import org.apache.bcel.classfile.ClassParser;
-import org.apache.bcel.classfile.Code;
 import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.classfile.Method;
-import org.apache.bcel.generic.ClassGen;
-import org.apache.bcel.generic.ConstantPoolGen;
-import org.apache.bcel.generic.GOTO;
-import org.apache.bcel.generic.ICONST;
-import org.apache.bcel.generic.InstructionHandle;
-import org.apache.bcel.generic.InstructionList;
-import org.apache.bcel.generic.MethodGen;
-import org.apache.bcel.generic.TargetLostException;
+import org.apache.bcel.generic.*;
 import org.apache.bcel.util.InstructionFinder;
 
 public class ByteCodeOptimizer
@@ -28,8 +18,6 @@ public class ByteCodeOptimizer
 
 	JavaClass original = null;
 	JavaClass optimized = null;
-	ArrayList<InstructionHandle> gotoList = new ArrayList<InstructionHandle>();
-
 
 	public ByteCodeOptimizer(String classFilePath)
 	{
@@ -41,146 +29,80 @@ public class ByteCodeOptimizer
 			e.printStackTrace();
 		}
 	}
-	
-	/* 1) GOES THROUGH EACH METHOD */ 
-	private void optimize() {
-		// load the original class into a class generator
-		ClassGen cgen = new ClassGen(original);
-		ConstantPoolGen cpgen = cgen.getConstantPool();
-	
+
+	private void optimize()
+	{
+        ClassGen gen = new ClassGen(original);
 		// Do your optimization here
-		Method[] methods = cgen.getMethods();
-		for (Method m : methods)
-		{
-			optimiseGoTos(cgen, cpgen, m);
-	
-		}
-	
-		// we generate a new class with modifications
-		// and store it in a member variable
-		this.optimized = cgen.getJavaClass();
+
+        ConstantPoolGen cp = gen.getConstantPool(); 
+        Method[] methodsList = gen.getMethods();
+
+        for(int i=0;i<methodsList.length;i++)
+        {
+            MethodGen method = new MethodGen(methodsList[i],gen.getClassName(),cp);
+            int checkChange = method.getInstructionList().getLength();
+            
+            while(true)
+            {
+            	methodsList[i] = optimiseGoTos(gen, cp, method); //
+                
+                // Each time, optimiseGoTos reduces the amount of GoTos in method
+            	// Eventually it'll have done all the changes, and so the amount of instructions in the list will be the same as the original checkChange variable
+            	// Hence no more changes to be made, and so break out of the loop 
+                if(method.getInstructionList().getLength() == checkChange)
+                    break;
+                else
+                	checkChange = method.getInstructionList().getLength();
+            }
+        }
+
+        gen.setMethods(methodsList); // update class's methods 
+		this.optimized = gen.getJavaClass();
 	}
-	
 
-	/* CHECKS EACH INSTRUCTION HANDLE */
-	public Method optimiseGoTos(ClassGen cgen, ConstantPoolGen cpgen, Method method) {
-		// Get the Code of the method, which is a collection of bytecode instructions
-		Code methodCode = method.getCode();
-	
-		// Now get the actualy bytecode data in byte array, 
-		// and use it to initialise an InstructionList
-		InstructionList instList = new InstructionList(methodCode.getCode());
-	
-		// Initialise a method generator with the original method as the baseline	
-		MethodGen methodGen = new MethodGen(method.getAccessFlags(), method.getReturnType(), method.getArgumentTypes(), null, method.getName(), cgen.getClassName(), instList, cpgen);
-	
-		// InstructionHandle is a wrapper for actual Instructions
-		
-		for (InstructionHandle handle : instList.getInstructionHandles())
-		{
-			// if the instruction inside is iconst
-			if (handle.getInstruction() instanceof GOTO)
-			{
-				String print = handle.toString();
-				// System.out.println("The handle is:" + print); 
-			//	System.out.println("Next handle: " + handle.getNext().toString() );
-				
-				InstructionHandle nextHandle;
+	/* 
+	 * This function goes through each method, and optimises any duplicate gotos it has 
+	 * Copies any duplicates extra gotos to the first goto, and then deletes the extra 
+	 * Takes structure from five.java file + BCEL Manual 
+	 */
+    private Method optimiseGoTos(ClassGen gen, ConstantPoolGen cpgen, MethodGen method) 
+    {
+        InstructionList instructionList = method.getInstructionList();
 
-				gotoList.add(handle);
-				nextHandle = handle.getNext();
-				
-				
-				// int count = 1; // track how many gotos 
-				
-				
-				while (nextHandle.getInstruction() instanceof GOTO ) {
-					gotoList.add(nextHandle); // add the goto into the array
-					// count++;
-					
-					System.out.println("Next handle: " + handle.getNext().toString() );
-					int lastLineNumber = nextHandle.getPosition(); // get line number of last go to
-					InstructionHandle lastInstruction = nextHandle;
-					nextHandle = handle.getNext().getNext(); // get the next instruction
-					
-					
-					// Check if next one is a goto, if not update 
-					if (!(nextHandle.getInstruction() instanceof GOTO)) {
-						for (int i = 0; i <gotoList.size(); i++) {
-							System.out.println("Array position at " + i +  " is " + gotoList.get(i)); 
-							
-						}
-						
-						System.out.println("Last line number:" + lastLineNumber);
-						
-						// InstructionHandle toDelete = nextHandle.getPrev();
-						
-						for (int i = 0; i<=gotoList.size()-1; i++) {
-							// if first position, update with last line number
-							if (i == 0) {
-								instList.insert(gotoList.get(0),  new GOTO(lastInstruction));
-								
-							} 
-							// else delete the rest of the gotos
-							else {
-								// System.out.println("To delete: "+ toDelete);
-								
-								
-								try {
-									for (InstructionHandle handle1 : instList.getInstructionHandles()) {
-										System.out.println("All instructions");
-										System.out.println(handle.getInstruction() );
-									}
+        InstructionFinder instructionFinder = new InstructionFinder(instructionList);
+        for(Iterator iter = instructionFinder.search("GOTO GOTO"); iter.hasNext();) // find a goto pointing to another goto
+        {
+            InstructionHandle[] extraGoToList = (InstructionHandle[]) iter.next();
+            InstructionHandle original = extraGoToList[0];
+            original.setInstruction(extraGoToList[1].getInstruction().copy()); // copy the extra goto to the original 
+           
+            try
+            {
+            	instructionList.delete(extraGoToList[1]); // delete the extra 
+            }
+            
+            // Taken from BCEL Manual, when there when there are instruction targeters still referencing one of the deleted instructions
+            // Will throw TargetLostException, where we deal with it by redirecting these references elsewhere using this code 
+            catch(TargetLostException e)
+            {
+                InstructionHandle[] targets = e.getTargets();
+                for(int i=0;i<targets.length;i++)
+                {
+                    InstructionTargeter[] targeters = targets[i].getTargeters();
+                    for(int j=0;j<targeters.length;j++)
+                    {
+                        targeters[j].updateTarget(targets[i],null);
+                    }
+                }
+            }
+        }
 
-									instList.delete(gotoList.get(i));
-									// toDelete = toDelete.getPrev();
-								} catch (TargetLostException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-								}	
-							}
-						}
-					}			
-				} 
-				
-				
-				/*
-				// insert new one with integer 5, and...
-				instList.insert(handle, new ICONST(5));
-				try
-				{
-					// delete the old one
-					instList.delete(handle);
-	
-				}
-				catch (TargetLostException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				*/
-				
-			}
-		}
-		
-		// setPositions(true) checks whether jump handles 
-		// are all within the current method
-		instList.setPositions(true);
+        method.setInstructionList(instructionList); // update method's instructions with optimised gotos 
 
-		// set max stack/local
-		methodGen.setMaxStack();
-		methodGen.setMaxLocals();
-
-		// generate the new method with replaced iconst
-		Method newMethod = methodGen.getMethod();
-		// replace the method in the original class
-		cgen.replaceMethod(method, newMethod);
-		return newMethod;
-		
-	}
-	
-	
-	/* Don't need to touch  */
+        return method.getMethod();
+    }
+    
 	public void write(String optimisedFilePath)
 	{
 		this.optimize();
@@ -196,7 +118,7 @@ public class ByteCodeOptimizer
 			e.printStackTrace();
 		}
 	}
-	
+
 	public static void main(String args[])
 	{
 		ByteCodeOptimizer optimizer = new ByteCodeOptimizer(args[0]);
